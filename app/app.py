@@ -1,12 +1,20 @@
 """
 Smart Inquiry Triage Assistant — Streamlit chat interface.
 
-This is the FRONTEND only. The actual triage logic (LLM, embeddings,
-vector store, LangGraph workflow) is left for you (the candidate) to
-implement in `triage_inquiry` below / in `src/main.py`.
+This frontend interacts directly with the core triage pipeline implemented in
+`src/main.py`.
 """
 
+import sys
+from pathlib import Path
 import streamlit as st
+
+# Add project root to sys.path so src module can be imported
+BASE_DIR = Path(__file__).resolve().parent.parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+
+from src.main import triage_inquiry
 
 # --- Configuration (sidebar controls) ------------------------------------
 
@@ -19,20 +27,6 @@ with st.sidebar:
     confidence_threshold = st.slider(
         "Confidence threshold", min_value=0.0, max_value=1.0, value=0.5, step=0.05
     )
-
-
-# --- Backend hook --------------------------------------------------------
-
-import sys
-from pathlib import Path
-
-# Add project root to sys.path
-BASE_DIR = Path(__file__).resolve().parent.parent
-if str(BASE_DIR) not in sys.path:
-    sys.path.insert(0, str(BASE_DIR))
-
-from src.main import triage_inquiry
-
 
 
 # --- Result rendering -----------------------------------------------------
@@ -85,8 +79,8 @@ if query:
                 result = triage_inquiry(query, top_k, confidence_threshold)
             render_result(result)
             st.session_state.history.append({"query": query, "result": result})
-        except NotImplementedError:
-            msg = "Backend not implemented yet — implement `triage_inquiry`."
+        except Exception as e:
+            msg = f"Error during triage: {e}"
             st.error(msg)
             st.session_state.history.append(
                 {"query": query, "result": None, "error": msg}
