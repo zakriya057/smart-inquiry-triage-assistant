@@ -12,3 +12,7 @@ chromadb>=0.5
 
 # Data
 pandas>=2.0
+
+# Google GenAI & Environment
+langchain-google-genai
+python-dotenv
