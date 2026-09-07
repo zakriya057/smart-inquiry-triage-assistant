@@ -21,41 +21,18 @@ with st.sidebar:
     )
 
 
-# --- Backend hook (IMPLEMENT ME) -----------------------------------------
+# --- Backend hook --------------------------------------------------------
 
-def triage_inquiry(query: str, top_k: int, confidence_threshold: float) -> dict:
-    """
-    TODO (candidate): implement the triage pipeline.
+import sys
+from pathlib import Path
 
-    Run the classify -> retrieve Top-K -> determine priority -> route ->
-    resolution notes workflow (LangGraph) and return a dict shaped like:
+# Add project root to sys.path
+BASE_DIR = Path(__file__).resolve().parent.parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
 
-        {
-            "query": query,
-            "category": "<predicted category>",
-            "priority": "<low | medium | high>",
-            "routed_queue": "<target queue/team>",
-            "confidence": 0.0,                      # 0.0 - 1.0
-            "resolution_notes": "<1-2 line note>",
-            "retrieved_past_cases": ["<case 1>", "<case 2>", ...],
-            "escalated": False,                     # confidence < threshold
-        }
+from src.main import triage_inquiry
 
-    You can import and call your real implementation from `src/main.py`.
-    """
-    raise NotImplementedError("Implement the triage pipeline here.")
-
-    # Example placeholder shape (remove once implemented):
-    # return {
-    #     "query": query,
-    #     "category": "unknown",
-    #     "priority": "low",
-    #     "routed_queue": "general",
-    #     "confidence": 0.0,
-    #     "resolution_notes": "",
-    #     "retrieved_past_cases": [],
-    #     "escalated": True,
-    # }
 
 
 # --- Result rendering -----------------------------------------------------
