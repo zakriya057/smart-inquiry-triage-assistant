@@ -7,5 +7,8 @@ services:
       - "8501:8501"
     volumes:
       - ./:/app
+    env_file:
+      - .env
     environment:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+    command: bash -c "if [ ! -d './chroma_db' ]; then echo 'Initializing ChromaDB...'; python src/ingest.py; fi && streamlit run app/app.py --server.port=8501 --server.address=0.0.0.0"
