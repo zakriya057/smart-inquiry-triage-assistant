@@ -138,7 +138,7 @@ This runs a sample test inquiry through retrieval, context assembly, and Gemini 
 To build a robust and adaptive triage system, I designed an architecture that decouples mathematical vector retrieval from semantic business reasoning, executed through a state-based graph workflow.
 
 ### 1. Core Technologies
-* **Reasoning Engine:** **Gemini 1.5 Flash** serves as the core LLM to handle classification, reasoning, and structured data generation.
+* **Reasoning Engine:** **Gemini 1.5 Flash** was chosen as a lightweight, high-speed LLM that excels at strict JSON schema adherence to handle classification, reasoning, and structured data generation without unnecessary latency.
 * **Embedding Model:** **Gemini embedding model** (`models/text-embedding-004`) generates dense vector representations for all historical customer inquiries.
 * **Vector Store:** **ChromaDB** acts as the lightweight, local vector store for historical precedents.
 
@@ -146,7 +146,7 @@ To build a robust and adaptive triage system, I designed an architecture that de
 Instead of relying solely on vector similarity (KNN) or pure zero-shot LLM prompting, I utilized a **hybrid approach** to make triage decisions:
 * **Top-K Retrieval:** A standard RAG pipeline queries ChromaDB to fetch the Top-K most semantically similar past cases based on the user's inquiry.
 * **Semantic Classification & Routing:** The retrieved historical precedents (for priority/routing context) and the canonical `taxonomy.json` (for strict categorical rules) are injected into a single prompt. Gemini 1.5 Flash evaluates this combined context to determine the precise category and target operational queue.
-* **Confidence Scoring & Escalation:** The LLM generates an explicit confidence score ($0.0 - 1.0$) based on taxonomy alignment and precedent consistency. If this score falls below the user-defined threshold, the system flags the inquiry (`escalated: true`) for human review.
+* **Confidence Scoring & Escalation:** I utilized an **LLM self-report mechanism** where the model generates an explicit confidence score (0.0 - 1.0) based on semantic taxonomy alignment and historical precedent consistency. If this score falls below the user-defined threshold, the system flags the inquiry (`escalated: true`) for human review.
 
 ### 3. LangGraph Execution Flow
 To ensure modularity and scalability, the execution logic is orchestrated using LangGraph:
