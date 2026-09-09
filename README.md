@@ -135,21 +135,28 @@ This runs a sample test inquiry through retrieval, context assembly, and Gemini 
 
 ## 🧠 Design Decisions & Architecture
 
-To build a robust and adaptive triage system, I designed a hybrid architecture that decouples mathematical vector retrieval from semantic business reasoning.
+To build a robust and adaptive triage system, I designed an architecture that decouples mathematical vector retrieval from semantic business reasoning, executed through a state-based graph workflow.
 
 ### 1. Core Technologies
-* **Reasoning Engine:** I selected **Gemini 1.5 Flash** as the core Large Language Model (LLM) to handle classification, reasoning, and structured data generation.
-* **Embedding Model:** I used the **Gemini embedding model** (`models/text-embedding-004`) to generate dense vector representations for all historical customer inquiries.
-* **Vector Store:** I chose **ChromaDB** as the vector store because it is lightweight, embedded, and runs seamlessly in local or containerized environments without external service dependencies.
+* **Reasoning Engine:** **Gemini 1.5 Flash** serves as the core LLM to handle classification, reasoning, and structured data generation.
+* **Embedding Model:** **Gemini embedding model** (`models/text-embedding-004`) generates dense vector representations for all historical customer inquiries.
+* **Vector Store:** **ChromaDB** acts as the lightweight, local vector store for historical precedents.
 
-### 2. The Hybrid Triage Pipeline & Confidence Strategy
-Rather than relying solely on vector similarity (KNN) or pure zero-shot LLM prompting, I implemented an agentic RAG pipeline that operates in a unified, three-step flow:
-* **Step 1: Precedent Retrieval (RAG):** When a new inquiry arrives, the system queries ChromaDB to fetch the Top-K most semantically similar past cases, capturing how similar issues were handled historically.
-* **Step 2: Context Assembly:** The system constructs a single comprehensive prompt. It injects the retrieved Top-K precedents (dynamic operational memory) alongside the canonical rules from `taxonomy.json` (rigid business logic) and strict role instructions.
-* **Step 3: Semantic Reasoning & Escalation:** This unified prompt is sent to Gemini 1.5 Flash. The LLM acts as the classifier, determining priority, routing to the appropriate queue, and drafting resolution notes. Concurrently, the LLM calculates a **confidence score** ($0.0 - 1.0$) based on taxonomy alignment and precedent consistency. If the model's self-reported confidence falls below the user-defined threshold, the query is automatically flagged as `escalated: true` for human review.
+### 2. The Hybrid Decision Engine
+Instead of relying solely on vector similarity (KNN) or pure zero-shot LLM prompting, I utilized a **hybrid approach** to make triage decisions:
+* **Top-K Retrieval:** A standard RAG pipeline queries ChromaDB to fetch the Top-K most semantically similar past cases based on the user's inquiry.
+* **Semantic Classification & Routing:** The retrieved historical precedents (for priority/routing context) and the canonical `taxonomy.json` (for strict categorical rules) are injected into a single prompt. Gemini 1.5 Flash evaluates this combined context to determine the precise category and target operational queue.
+* **Confidence Scoring & Escalation:** The LLM generates an explicit confidence score ($0.0 - 1.0$) based on taxonomy alignment and precedent consistency. If this score falls below the user-defined threshold, the system flags the inquiry (`escalated: true`) for human review.
 
-### 3. Conceptual System Prompt
-The LLM is guided by a structured prompt enforcing strict schema adherence:
+### 3. LangGraph Execution Flow
+To ensure modularity and scalability, the execution logic is orchestrated using LangGraph:
+* **State:** A central `TriageState` dictionary maintains the query, retrieved cases, configuration thresholds, and the final output dictionary.
+* **Node 1 (Retrieve Context):** Extracts the query, queries ChromaDB for the Top-K similar cases, and saves them to the graph state.
+* **Node 2 (Semantic Reasoning):** Loads `taxonomy.json`, builds the unified context prompt, calls Gemini 1.5 Flash for the structured JSON response, checks the confidence threshold for escalation, and finalized the state.
+* **Workflow:** The graph executes linearly: `START` ➔ `Node 1` ➔ `Node 2` ➔ `END`.
+
+### 4. Conceptual System Prompt
+The reasoning node is guided by a strict prompt enforcing schema adherence:
 
 > **System Role:** You are an expert customer inquiry triage AI assistant. Classify the inquiry, determine priority, route to the correct queue, calculate confidence, and draft resolution notes.
 > 
@@ -165,8 +172,6 @@ The LLM is guided by a structured prompt enforcing strict schema adherence:
 > 3. Compute confidence score ($0.0 - 1.0$) based on precedent agreement and clarity.
 > 4. Return the structured output matching the required JSON schema.
 
-### 4. Architectural Trade-offs
-* **Advantage — Explainability & Adaptability:** Injecting taxonomy context into the LLM allows dynamic updates to business categories without retraining or rebuilding vector stores, while producing human-readable resolution notes.
+### 5. Architectural Trade-offs
+* **Advantage — Explainability & Adaptability:** Injecting taxonomy context into the LLM allows dynamic updates to business rules without rebuilding vector stores, while producing human-readable resolution notes. The LangGraph scaffolding ensures the system can easily support complex loops or human-in-the-loop approvals in the future.
 * **Trade-off — Latency & Token Cost:** Involving an LLM for final classification adds API round-trip latency and operational token expense compared to pure vector-space clustering.
-
-
