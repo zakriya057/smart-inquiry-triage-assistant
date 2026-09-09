@@ -130,3 +130,36 @@ python src/main.py
 *(Or inside Docker: `docker compose run --rm app python src/main.py`)*
 
 This runs a sample test inquiry through retrieval, context assembly, and Gemini structured output, printing the complete response dictionary to the console.
+
+---
+
+## 🧠 Design Decisions & Architecture
+
+To build a robust and adaptive triage system, I designed an architecture that decouples mathematical vector retrieval from semantic business reasoning. 
+
+### 1. Embeddings & Vector Database
+* **Embedding Model:** I utilized the **Gemini embedding model** to convert all historical customer inquiries from the CSV into vector representations.
+* **Vector Store:** I chose **ChromaDB** as the vector database. The primary reason for this choice is that it is incredibly lightweight, easy to run locally or inside a Docker container, and perfectly suited for managing this scale of document retrieval without heavy infrastructure overhead.
+
+### 2. Retrieval & Classification (Hybrid LLM Approach)
+* **Top-K Retrieval (RAG):** When a new inquiry comes in, the system uses a Retrieval-Augmented Generation (RAG) pipeline to fetch the Top-K most semantically similar historical elements from ChromaDB.
+* **LLM Reasoning:** Instead of relying on a simple K-Nearest Neighbors (KNN) algorithm for classification, I pass the retrieved Top-K elements alongside the official `taxonomy.json` directly into a prompt for the LLM. 
+* **The Output:** The LLM acts as the core reasoning engine. It processes the context to generate the final classification, determine operational priority, route the ticket to the correct queue, draft resolution notes, and calculate a confidence score.
+
+### 3. Sample LLM Prompt Structure
+To achieve this, I guided the LLM with a strict system prompt that looks conceptually like this:
+
+> **System Role:** You are an expert customer inquiry triage AI assistant. Your role is to classify inquiries, determine priority, route to the correct queue, calculate a confidence score, and draft resolution notes.
+> 
+> **Context 1 (Taxonomy):** 
+> [Insert categories, definitions, and keywords from taxonomy.json]
+> 
+> **Context 2 (Top-K Elements):** 
+> [Insert retrieved historical cases: queries, past priority, past routing]
+> 
+> **Instructions:** 
+> 1. Classify the user query strictly using Context 1.
+> 2. Determine priority and routing strictly based on precedent in Context 2.
+> 3. Provide a confidence score (0.0 - 1.0) based on taxonomy alignment and Top-K consistency.
+> 4. Return the output in the strict required JSON format.
+
