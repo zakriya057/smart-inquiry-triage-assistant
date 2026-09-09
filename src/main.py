@@ -1,12 +1,11 @@
 """
-Smart Inquiry Triage Assistant — Core Triage Pipeline.
+Smart Inquiry Triage Assistant — LangGraph Triage Pipeline.
 
-This module implements the core triage backend logic:
-1. Vector retrieval of Top-K historical cases from local ChromaDB.
-2. Canonical taxonomy context loading from data/taxonomy.json.
-3. LLM classification, priority inference, queue routing, confidence calculation,
-   and resolution notes drafting.
-4. Structured output formatting matching the frontend contract.
+This module implements the core triage backend logic using a LangGraph StateGraph:
+- State: TriageState (query, top_k, confidence_threshold, retrieved_cases, final_output)
+- Node 1: retrieve_node (similarity search over ChromaDB historical cases)
+- Node 2: reasoning_node (canonical taxonomy injection, Gemini reasoning, confidence scoring)
+- Workflow: START -> retrieve_node -> reasoning_node -> END
 """
 
 import os
@@ -14,7 +13,7 @@ import sys
 import json
 import logging
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Dict, Any, TypedDict
 
 from dotenv import load_dotenv
 import chromadb
@@ -22,6 +21,7 @@ from langchain_community.vectorstores import Chroma
 from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
 from langchain_core.messages import SystemMessage, HumanMessage
 from pydantic import BaseModel, Field
+from langgraph.graph import StateGraph, START, END
 
 # Configure logging
 logging.basicConfig(
@@ -189,41 +189,55 @@ def format_past_cases_context(docs) -> str:
     return "\n\n".join(lines)
 
 
-def triage_inquiry(query: str, top_k: int = 3, confidence_threshold: float = 0.5) -> dict:
-    """
-    Execute end-to-end inquiry triage pipeline:
-    1. Retrieval: Fetch Top-K similar cases from ChromaDB.
-    2. Context Assembly: Load taxonomy and format few-shot precedent context.
-    3. LLM Triage: Call Gemini with structured output.
-    4. Escalation check & output formatting matching frontend contract.
+# =========================================================================
+# LangGraph State & Node Definitions
+# =========================================================================
 
-    Returns:
-        dict shaped exactly as:
-        {
-            "query": query,
-            "category": "<predicted category>",
-            "priority": "<low | medium | high>",
-            "routed_queue": "<target queue/team>",
-            "confidence": 0.0,
-            "resolution_notes": "<1-2 line note>",
-            "retrieved_past_cases": ["<case text 1>", "<case text 2>", ...],
-            "escalated": False,
-        }
+class TriageState(TypedDict):
+    """LangGraph state schema representing the triage workflow."""
+    query: str
+    top_k: int
+    confidence_threshold: float
+    retrieved_cases: list
+    final_output: dict
+
+
+def retrieve_node(state: TriageState) -> dict:
     """
+    Node 1 (retrieve_node):
+    Extract query and top_k from state, run ChromaDB similarity search,
+    and return retrieved past cases to update the graph state.
+    """
+    query = state.get("query", "")
+    top_k = state.get("top_k", 3)
+
     api_key = load_environment()
-
-    # Step 1: Retrieval
     embeddings_model = get_embeddings_model(api_key)
     vector_store = get_vector_store(embeddings_model)
-    retrieved_docs = vector_store.similarity_search(query, k=top_k)
+    results = vector_store.similarity_search(query, k=top_k)
 
-    # Step 2: Context Assembly
+    return {"retrieved_cases": results}
+
+
+def reasoning_node(state: TriageState) -> dict:
+    """
+    Node 2 (reasoning_node):
+    Extract query, retrieved_cases, and confidence_threshold from state.
+    Assemble taxonomy context and historical few-shot context, invoke Gemini
+    with structured output, calculate escalation flag, and return final_output.
+    """
+    query = state.get("query", "")
+    retrieved_docs = state.get("retrieved_cases", [])
+    confidence_threshold = state.get("confidence_threshold", 0.5)
+
+    api_key = load_environment()
     taxonomy_data = load_taxonomy()
     taxonomy_context = format_taxonomy_context(taxonomy_data)
     past_cases_context = format_past_cases_context(retrieved_docs)
     category_names = [c.get("name") for c in taxonomy_data.get("categories", [])]
 
-    # Step 3: LLM Prompt Preparation
+    top_k = len(retrieved_docs) if retrieved_docs else 3
+
     system_prompt = f"""You are an expert customer inquiry triage AI assistant for an automotive company.
 Your job is to analyze incoming customer inquiries, classify them accurately into the canonical categories defined in the taxonomy, infer their priority strictly from retrieved historical case metadata, route them to the appropriate support queue, estimate a confidence score, and draft concise resolution notes.
 
@@ -254,7 +268,6 @@ Use these past cases and their metadata (category, priority, routed_queue) to gu
     # print(f"[USER QUERY]\n{user_message}")
     # print("=" * 80 + "\n")
 
-    # Step 4: LLM Triage & Confidence Evaluation
     llm = get_llm(api_key)
     structured_llm = llm.with_structured_output(TriageLLMResponse)
 
@@ -265,27 +278,93 @@ Use these past cases and their metadata (category, priority, routed_queue) to gu
 
     response: TriageLLMResponse = structured_llm.invoke(messages)
 
-    # Step 5: Format structured output matching frontend contract
     confidence_val = round(float(response.confidence), 2)
     escalated = bool(confidence_val < confidence_threshold)
     past_cases_texts = [doc.page_content for doc in retrieved_docs]
 
-    return {
+    category = response.category.lower().strip()
+    priority = response.priority.lower().strip()
+    routed_queue = response.routed_queue.strip()
+    resolution_notes = response.resolution_notes.strip()
+
+    # Formatted matching both strict PDF keys and frontend compatibility
+    generated_json = {
         "query": query,
-        "category": response.category.lower().strip(),
-        "priority": response.priority.lower().strip(),
-        "routed_queue": response.routed_queue.strip(),
+        "category": category,
+        "priority": priority,
+        "routed queue": routed_queue,
+        "routed_queue": routed_queue,
         "confidence": confidence_val,
-        "resolution_notes": response.resolution_notes.strip(),
+        "resolution notes": resolution_notes,
+        "resolution_notes": resolution_notes,
+        "retrieved past cases": past_cases_texts,
         "retrieved_past_cases": past_cases_texts,
         "escalated": escalated,
     }
+
+    return {"final_output": generated_json}
+
+
+# =========================================================================
+# StateGraph Orchestration & Compilation
+# =========================================================================
+
+def build_triage_graph():
+    """
+    Initialize StateGraph, define nodes, wire edges:
+    START -> retrieve_node -> reasoning_node -> END
+    """
+    workflow = StateGraph(TriageState)
+    workflow.add_node("retrieve_node", retrieve_node)
+    workflow.add_node("reasoning_node", reasoning_node)
+
+    workflow.add_edge(START, "retrieve_node")
+    workflow.add_edge("retrieve_node", "reasoning_node")
+    workflow.add_edge("reasoning_node", END)
+
+    return workflow.compile()
+
+
+# Compile the singleton LangGraph application
+triage_app = build_triage_graph()
+
+
+def triage_inquiry(query: str, top_k: int = 3, confidence_threshold: float = 0.5) -> dict:
+    """
+    Execute end-to-end inquiry triage through the compiled LangGraph StateGraph.
+
+    Args:
+        query: Raw customer inquiry text.
+        top_k: Number of historical cases to retrieve.
+        confidence_threshold: Minimum confidence threshold before escalation.
+
+    Returns:
+        Structured output dictionary with keys matching PDF requirements:
+        - "query"
+        - "category"
+        - "priority"
+        - "routed queue"
+        - "confidence"
+        - "resolution notes"
+        - "retrieved past cases"
+        - "escalated"
+    """
+    initial_state: TriageState = {
+        "query": query,
+        "top_k": top_k,
+        "confidence_threshold": confidence_threshold,
+        "retrieved_cases": [],
+        "final_output": {},
+    }
+
+    result = triage_app.invoke(initial_state)
+    return result.get("final_output", {})
 
 
 if __name__ == "__main__":
     # Terminal Validation Test
     print("\n" + "#" * 80)
-    print("RUNNING TERMINAL VALIDATION TEST")
+    print("RUNNING LANGGRAPH TERMINAL VALIDATION TEST")
     print("#" * 80)
 
     test_query = "The brake fluid warning appeared and the pedal feels soft."
@@ -302,7 +381,7 @@ if __name__ == "__main__":
     )
 
     print("\n" + "#" * 80)
-    print("COMPLETE STRUCTURED OUTPUT DICTIONARY:")
+    print("COMPLETE STRUCTURED OUTPUT DICTIONARY (FROM LANGGRAPH):")
     print("#" * 80)
     print(json.dumps(triage_result, indent=4))
     print("#" * 80 + "\n")
