@@ -135,40 +135,36 @@ This runs a sample test inquiry through retrieval, context assembly, and Gemini 
 
 ## 🧠 Design Decisions & Architecture
 
-To build a robust and adaptive triage system, I designed an architecture that decouples mathematical vector retrieval from semantic business reasoning. 
+To build a robust and adaptive triage system, I designed a hybrid architecture that decouples mathematical vector retrieval from semantic business reasoning.
 
 ### 1. Embeddings & Vector Database
-* **Embedding Model:** I utilized the **Gemini embedding model** to convert all historical customer inquiries from the CSV into vector representations.
-* **Vector Store:** I chose **ChromaDB** as the vector database. The primary reason for this choice is that it is incredibly lightweight, easy to run locally or inside a Docker container, and perfectly suited for managing this scale of document retrieval without heavy infrastructure overhead.
+* **Embedding Model:** I used the **Gemini embedding model** (`models/text-embedding-004`) to generate dense vector representations for all historical customer inquiries.
+* **Vector Store:** I chose **ChromaDB** as the vector store because it is lightweight, embedded, runs seamlessly in local or containerized environments without external service dependencies, and provides fast similarity search over local datasets.
 
-### 2. Retrieval & Classification (Hybrid LLM Approach)
-* **Top-K Retrieval (RAG):** When a new inquiry comes in, the system uses a Retrieval-Augmented Generation (RAG) pipeline to fetch the Top-K most semantically similar historical elements from ChromaDB.
-* **LLM Reasoning:** Instead of relying on a simple K-Nearest Neighbors (KNN) algorithm for classification, I pass the retrieved Top-K elements alongside the official `taxonomy.json` directly into a prompt for the LLM. 
-* **The Output:** The LLM acts as the core reasoning engine. It processes the context to generate the final classification, determine operational priority, route the ticket to the correct queue, draft resolution notes, and calculate a confidence score.
+### 2. Hybrid Triage Pipeline & Confidence Strategy
+Rather than relying solely on vector similarity (KNN) or raw zero-shot prompting, I implemented a hybrid approach that provides the LLM with both rigid rules and historical precedent:
+* **Precedent Retrieval (RAG):** For each incoming inquiry, the system retrieves the Top-K most semantically similar past cases from ChromaDB to capture historical resolutions, priorities, and routing patterns.
+* **Semantic Reasoning:** The retrieved cases and the canonical rules from `taxonomy.json` are injected into Gemini. The LLM performs unified classification, determines operational priority, routes to the appropriate queue, and drafts actionable resolution notes.
+* **Confidence Scoring & Escalation:** Instead of raw distance metrics, I adopted an **LLM Self-Report** rubric. The model estimates confidence ($0.0 - 1.0$) based on taxonomy keyword alignment, precedent consistency across the Top-K results, and query clarity. If the score falls below the user-defined threshold, the inquiry automatically flags `escalated: true` for human review.
 
-### 3. Sample LLM Prompt Structure
-To achieve this, I guided the LLM with a strict system prompt that looks conceptually like this:
+### 3. Conceptual System Prompt
+The LLM is guided by a structured prompt enforcing strict schema adherence:
 
-> **System Role:** You are an expert customer inquiry triage AI assistant. Your role is to classify inquiries, determine priority, route to the correct queue, calculate a confidence score, and draft resolution notes.
+> **System Role:** You are an expert customer inquiry triage AI assistant. Classify the inquiry, determine priority, route to the correct queue, calculate confidence, and draft resolution notes.
 > 
-> **Context 1 (Taxonomy):** 
-> [Insert categories, definitions, and keywords from taxonomy.json]
+> **Context 1 (Taxonomy Rules):** 
+> [Canonical categories, definitions, and keywords from taxonomy.json]
 > 
-> **Context 2 (Top-K Elements):** 
-> [Insert retrieved historical cases: queries, past priority, past routing]
+> **Context 2 (Historical Precedents):** 
+> [Top-K retrieved cases: query, priority, routed queue, resolution]
 > 
 > **Instructions:** 
-> 1. Classify the user query strictly using Context 1.
-> 2. Determine priority and routing strictly based on precedent in Context 2.
-> 3. Provide a confidence score (0.0 - 1.0) based on taxonomy alignment and Top-K consistency.
-> 4. Return the output in the strict required JSON format.
+> 1. Classify using Context 1 definitions.
+> 2. Infer priority and routing aligned with Context 2 precedent.
+> 3. Compute confidence score ($0.0 - 1.0$) based on precedent agreement and clarity.
+> 4. Return the structured output matching the required JSON schema.
 
-### 4. Confidence Scoring & Escalation Strategy
-Rather than relying on raw vector-distance metrics, I implemented a **Hybrid LLM Self-Report**. The confidence score (0.0 - 1.0) is evaluated dynamically by the LLM based on:
-* **Taxonomy Alignment:** The precision of the incoming query's match to the canonical definitions.
-* **Precedent Consistency:** The level of unanimous agreement among the retrieved Top-K cases regarding priority and routing.
-* **Ambiguity Penalty:** Vague queries safely lower the score, automatically triggering the configurable `escalated` UI flag for human review.
+### 4. Architectural Trade-offs
+* **Advantage — Explainability & Adaptability:** Injecting taxonomy context into the LLM allows dynamic updates to business categories without retraining or rebuilding vector stores, while producing human-readable resolution notes.
+* **Trade-off — Latency & Token Cost:** Involving an LLM for final classification adds API round-trip latency and operational token expense compared to pure vector-space clustering.
 
-### 5. Key Trade-offs
-* **Advantage — Explainability & Flexibility:** Passing context to the LLM enables human-readable resolution notes and allows operations teams to update `taxonomy.json` without retraining models or rebuilding the vector database.
-* **Trade-off — Latency & Cost:** Relying on Gemini for the final triage decision introduces API latency and ongoing token costs compared to executing a simple K-Nearest Neighbors (KNN) algorithm directly on the vector embeddings.
