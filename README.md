@@ -163,3 +163,12 @@ To achieve this, I guided the LLM with a strict system prompt that looks concept
 > 3. Provide a confidence score (0.0 - 1.0) based on taxonomy alignment and Top-K consistency.
 > 4. Return the output in the strict required JSON format.
 
+### 4. Confidence Scoring & Escalation Strategy
+Rather than relying on raw vector-distance metrics, I implemented a **Hybrid LLM Self-Report**. The confidence score (0.0 - 1.0) is evaluated dynamically by the LLM based on:
+* **Taxonomy Alignment:** The precision of the incoming query's match to the canonical definitions.
+* **Precedent Consistency:** The level of unanimous agreement among the retrieved Top-K cases regarding priority and routing.
+* **Ambiguity Penalty:** Vague queries safely lower the score, automatically triggering the configurable `escalated` UI flag for human review.
+
+### 5. Key Trade-offs
+* **Advantage — Explainability & Flexibility:** Passing context to the LLM enables human-readable resolution notes and allows operations teams to update `taxonomy.json` without retraining models or rebuilding the vector database.
+* **Trade-off — Latency & Cost:** Relying on Gemini for the final triage decision introduces API latency and ongoing token costs compared to executing a simple K-Nearest Neighbors (KNN) algorithm directly on the vector embeddings.
