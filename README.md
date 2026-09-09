@@ -137,15 +137,16 @@ This runs a sample test inquiry through retrieval, context assembly, and Gemini 
 
 To build a robust and adaptive triage system, I designed a hybrid architecture that decouples mathematical vector retrieval from semantic business reasoning.
 
-### 1. Embeddings & Vector Database
+### 1. Core Technologies
+* **Reasoning Engine:** I selected **Gemini 1.5 Flash** as the core Large Language Model (LLM) to handle classification, reasoning, and structured data generation.
 * **Embedding Model:** I used the **Gemini embedding model** (`models/text-embedding-004`) to generate dense vector representations for all historical customer inquiries.
-* **Vector Store:** I chose **ChromaDB** as the vector store because it is lightweight, embedded, runs seamlessly in local or containerized environments without external service dependencies, and provides fast similarity search over local datasets.
+* **Vector Store:** I chose **ChromaDB** as the vector store because it is lightweight, embedded, and runs seamlessly in local or containerized environments without external service dependencies.
 
-### 2. Hybrid Triage Pipeline & Confidence Strategy
-Rather than relying solely on vector similarity (KNN) or raw zero-shot prompting, I implemented a hybrid approach that provides the LLM with both rigid rules and historical precedent:
-* **Precedent Retrieval (RAG):** For each incoming inquiry, the system retrieves the Top-K most semantically similar past cases from ChromaDB to capture historical resolutions, priorities, and routing patterns.
-* **Semantic Reasoning:** The retrieved cases and the canonical rules from `taxonomy.json` are injected into Gemini. The LLM performs unified classification, determines operational priority, routes to the appropriate queue, and drafts actionable resolution notes.
-* **Confidence Scoring & Escalation:** Instead of raw distance metrics, I adopted an **LLM Self-Report** rubric. The model estimates confidence ($0.0 - 1.0$) based on taxonomy keyword alignment, precedent consistency across the Top-K results, and query clarity. If the score falls below the user-defined threshold, the inquiry automatically flags `escalated: true` for human review.
+### 2. The Hybrid Triage Pipeline & Confidence Strategy
+Rather than relying solely on vector similarity (KNN) or pure zero-shot LLM prompting, I implemented an agentic RAG pipeline that operates in a unified, three-step flow:
+* **Step 1: Precedent Retrieval (RAG):** When a new inquiry arrives, the system queries ChromaDB to fetch the Top-K most semantically similar past cases, capturing how similar issues were handled historically.
+* **Step 2: Context Assembly:** The system constructs a single comprehensive prompt. It injects the retrieved Top-K precedents (dynamic operational memory) alongside the canonical rules from `taxonomy.json` (rigid business logic) and strict role instructions.
+* **Step 3: Semantic Reasoning & Escalation:** This unified prompt is sent to Gemini 1.5 Flash. The LLM acts as the classifier, determining priority, routing to the appropriate queue, and drafting resolution notes. Concurrently, the LLM calculates a **confidence score** ($0.0 - 1.0$) based on taxonomy alignment and precedent consistency. If the model's self-reported confidence falls below the user-defined threshold, the query is automatically flagged as `escalated: true` for human review.
 
 ### 3. Conceptual System Prompt
 The LLM is guided by a structured prompt enforcing strict schema adherence:
@@ -167,4 +168,5 @@ The LLM is guided by a structured prompt enforcing strict schema adherence:
 ### 4. Architectural Trade-offs
 * **Advantage — Explainability & Adaptability:** Injecting taxonomy context into the LLM allows dynamic updates to business categories without retraining or rebuilding vector stores, while producing human-readable resolution notes.
 * **Trade-off — Latency & Token Cost:** Involving an LLM for final classification adds API round-trip latency and operational token expense compared to pure vector-space clustering.
+
 
