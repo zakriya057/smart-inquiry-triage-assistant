@@ -260,13 +260,7 @@ Use these past cases and their metadata (category, priority, routed_queue) to gu
 
     user_message = f"Customer Inquiry to triage:\n\"{query}\""
 
-    # Verbose prompt debugging (commented out for production):
-    # print("\n" + "=" * 80)
-    # print("PROMPT SENT TO GEMINI API:")
-    # print("=" * 80)
-    # print(f"[SYSTEM PROMPT]\n{system_prompt}\n")
-    # print(f"[USER QUERY]\n{user_message}")
-    # print("=" * 80 + "\n")
+
 
     llm = get_llm(api_key)
     structured_llm = llm.with_structured_output(TriageLLMResponse)
